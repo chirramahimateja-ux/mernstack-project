@@ -1,0 +1,11 @@
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: radial-gradient(circle at top, #0a0f24, #020617 70%);
+  color: white;
+  font-family: system-ui, sans-serif;
+  overflow-x: hidden;
+}

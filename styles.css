@@ -1,0 +1,648 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useTypewriter, Cursor } from "react-simple-typewriter";
+import { FaPhone, FaEnvelope, FaLinkedin, FaGithub, FaGlobe } from "react-icons/fa";
+import { getUserProfile, updateProfile } from "../utils/api";
+import "./Dashboard.css";
+
+const getImageUrl = (filename) =>
+  filename
+    ? `http://localhost:5000/uploads/${filename}`
+    : "https://cdn-icons-png.flaticon.com/512/3135/3135715.png";
+
+const normalizeUrl = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (text.startsWith("http://") || text.startsWith("https://")) return text;
+  return `https://${text}`;
+};
+
+const getNormalizedSocialLinks = (data = {}) => {
+  const objectLinks =
+    data?.socialLinks && typeof data.socialLinks === "object" && !Array.isArray(data.socialLinks)
+      ? data.socialLinks
+      : {};
+
+  const arrayLinks = Array.isArray(data?.socialLinks) ? data.socialLinks : [];
+  const pickFromArray = (platform) =>
+    arrayLinks.find((item) => String(item?.platform || "").toLowerCase() === platform)?.url || "";
+
+  return {
+    linkedin: String(
+      objectLinks.linkedin || data.linkedin || pickFromArray("linkedin") || ""
+    ).trim(),
+    github: String(
+      objectLinks.github || data.github || pickFromArray("github") || ""
+    ).trim(),
+    portfolio: String(
+      objectLinks.portfolio || data.portfolio || pickFromArray("portfolio") || pickFromArray("website") || ""
+    ).trim(),
+  };
+};
+
+const emptyProject = { title: "", description: "", link: "" };
+
+export default function Dashboard() {
+  const navigate = useNavigate();
+  const savedUser = JSON.parse(localStorage.getItem("user") || "null");
+
+  const [active, setActive] = useState("home");
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const [aboutEdit, setAboutEdit] = useState(false);
+  const [projectEdit, setProjectEdit] = useState(false);
+  const [contactEdit, setContactEdit] = useState(false);
+
+  const [editData, setEditData] = useState({
+    bio: "",
+    contact: "",
+    socialLinks: {
+      linkedin: "",
+      github: "",
+      portfolio: "",
+    },
+    skills: "",
+    projects: [],
+  });
+
+  useEffect(() => {
+    if (!savedUser?._id) {
+      navigate("/");
+      return;
+    }
+
+    const loadProfile = async () => {
+      try {
+        setLoading(true);
+        setError("");
+        const data = await getUserProfile(savedUser._id);
+        const normalizedSocialLinks = getNormalizedSocialLinks(data);
+
+        setProfile({ ...data, socialLinks: normalizedSocialLinks });
+        setEditData({
+          bio: data.bio || "",
+          contact: data.contact || "",
+          socialLinks: normalizedSocialLinks,
+          skills: (data.skills || []).join(", "),
+          projects: (data.projects || []).length ? data.projects : [{ ...emptyProject }],
+        });
+      } catch (err) {
+        setError(err.response?.data?.message || "Failed to load profile");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, [navigate, savedUser?._id]);
+
+  const roles = useMemo(() => {
+    const fromSkills = (profile?.skills || []).slice(0, 4);
+    return fromSkills.length ? fromSkills : ["MERN Developer", "Frontend Developer", "Backend Developer"];
+  }, [profile?.skills]);
+
+  const [typedText] = useTypewriter({
+    words: roles,
+    loop: true,
+    typeSpeed: 80,
+    deleteSpeed: 45,
+    delaySpeed: 1400,
+  });
+
+  const resetEditState = () => {
+    if (!profile) return;
+    setEditData({
+      bio: profile.bio || "",
+      contact: profile.contact || "",
+      socialLinks: {
+        linkedin: profile?.socialLinks?.linkedin || "",
+        github: profile?.socialLinks?.github || "",
+        portfolio: profile?.socialLinks?.portfolio || "",
+      },
+      skills: (profile.skills || []).join(", "),
+      projects: (profile.projects || []).length ? profile.projects : [{ ...emptyProject }],
+    });
+    setAboutEdit(false);
+    setProjectEdit(false);
+    setContactEdit(false);
+  };
+
+  const handleSave = async () => {
+    if (!savedUser?._id) return;
+
+    const payload = {
+      bio: editData.bio,
+      contact: editData.contact,
+      linkedin: String(editData.socialLinks.linkedin || "").trim(),
+      github: String(editData.socialLinks.github || "").trim(),
+      portfolio: String(editData.socialLinks.portfolio || "").trim(),
+      socialLinks: {
+        linkedin: String(editData.socialLinks.linkedin || "").trim(),
+        github: String(editData.socialLinks.github || "").trim(),
+        portfolio: String(editData.socialLinks.portfolio || "").trim(),
+      },
+      skills: editData.skills
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      projects: (editData.projects || [])
+        .map((project) => ({
+          title: String(project.title || "").trim(),
+          description: String(project.description || "").trim(),
+          link: String(project.link || "").trim(),
+        }))
+        .filter((project) => project.title || project.description || project.link),
+    };
+
+    try {
+      setSaving(true);
+      setError("");
+      const updated = await updateProfile(savedUser._id, payload);
+      const normalizedSocialLinks = getNormalizedSocialLinks({
+        ...updated,
+        socialLinks:
+          updated?.socialLinks && typeof updated.socialLinks === "object"
+            ? updated.socialLinks
+            : payload.socialLinks,
+        linkedin: updated?.linkedin ?? payload.linkedin,
+        github: updated?.github ?? payload.github,
+        portfolio: updated?.portfolio ?? payload.portfolio,
+      });
+
+      const mergedUpdated = { ...updated, socialLinks: normalizedSocialLinks };
+      setProfile(mergedUpdated);
+      setAboutEdit(false);
+      setProjectEdit(false);
+      setContactEdit(false);
+      localStorage.setItem("user", JSON.stringify({ ...savedUser, ...mergedUpdated }));
+    } catch (err) {
+      setError(err.response?.data?.message || "Update failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateProject = (index, key, value) => {
+    setEditData((prev) => {
+      const nextProjects = [...prev.projects];
+      nextProjects[index] = { ...nextProjects[index], [key]: value };
+      return { ...prev, projects: nextProjects };
+    });
+  };
+
+  const addProject = () => {
+    setEditData((prev) => ({
+      ...prev,
+      projects: [...prev.projects, { ...emptyProject }],
+    }));
+  };
+
+  const removeProject = (index) => {
+    setEditData((prev) => ({
+      ...prev,
+      projects: prev.projects.filter((_, i) => i !== index),
+    }));
+  };
+
+  if (loading) return <div className="loading-screen">Loading dashboard...</div>;
+
+  if (!profile) {
+    return (
+      <div className="loading-screen">
+        <p>{error || "Profile not found"}</p>
+      </div>
+    );
+  }
+
+  const social = getNormalizedSocialLinks(profile);
+
+  return (
+    <div className="dash-wrap">
+      <aside className="dash-sidebar glass">
+        <img
+          src={getImageUrl(profile.profileImage)}
+          alt="Profile"
+          className="sidebar-avatar"
+          onError={(e) => {
+            e.currentTarget.src = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png";
+          }}
+        />
+        <h3>{profile.name || savedUser?.name}</h3>
+        <nav>
+          {["home", "about", "projects", "contact"].map((item) => (
+            <button
+              key={item}
+              className={`menu-btn ${active === item ? "active" : ""}`}
+              onClick={() => {
+                setActive(item);
+                setAboutEdit(false);
+                setProjectEdit(false);
+                setContactEdit(false);
+              }}
+            >
+              {item.charAt(0).toUpperCase() + item.slice(1)}
+            </button>
+          ))}
+        </nav>
+        <button
+          className="logout-btn"
+          onClick={() => {
+            localStorage.removeItem("token");
+            localStorage.removeItem("user");
+            navigate("/");
+          }}
+        >
+          Logout
+        </button>
+      </aside>
+
+      <main className="dash-content">
+        {error && <p className="status-msg error">{error}</p>}
+
+        {active === "home" && (
+          <section className="glass section home-grid">
+            <div>
+              <p className="section-kicker">Welcome😄..</p>
+              <h1>Hello, {profile.name}</h1>
+              <h3>
+                {typedText}
+                <Cursor cursorStyle="|" />
+              </h3>
+              <p>{profile.bio || "Add your bio in About section."}</p>
+
+              <div className="social-links hero-contact-icons">
+                {social.linkedin && (
+                  <a href={normalizeUrl(social.linkedin)} target="_blank" rel="noreferrer" title="LinkedIn">
+                    <span className="social-icon"><FaLinkedin /></span>
+                  </a>
+                )}
+                {social.github && (
+                  <a href={normalizeUrl(social.github)} target="_blank" rel="noreferrer" title="GitHub">
+                    <span className="social-icon"><FaGithub /></span>
+                  </a>
+                )}
+                {social.portfolio && (
+                  <a href={normalizeUrl(social.portfolio)} target="_blank" rel="noreferrer" title="Portfolio">
+                    <span className="social-icon"><FaGlobe /></span>
+                  </a>
+                )}
+                {profile.email && (
+                  <a href={`mailto:${profile.email}`} title="Email">
+                    <span className="social-icon"><FaEnvelope /></span>
+                  </a>
+                )}
+                {profile.contact && (
+                  <a href={`tel:${profile.contact}`} title="Phone">
+                    <span className="social-icon"><FaPhone /></span>
+                  </a>
+                )}
+              </div>
+              <div className="contact-links">
+                {profile.email && (
+                  <p>
+                    <strong>Email:</strong>{" "}
+                    <a className="inline-link" href={`mailto:${profile.email}`}>{profile.email}</a>
+                  </p>
+                )}
+                {profile.contact && (
+                  <p>
+                    <strong>Phone:</strong>{" "}
+                    <a className="inline-link" href={`tel:${profile.contact}`}>{profile.contact}</a>
+                  </p>
+                )}
+                {social.linkedin && (
+                  <p>
+                    <strong>LinkedIn:</strong>{" "}
+                    <a className="inline-link" href={normalizeUrl(social.linkedin)} target="_blank" rel="noreferrer">
+                      {social.linkedin}
+                    </a>
+                  </p>
+                )}
+                {social.github && (
+                  <p>
+                    <strong>GitHub:</strong>{" "}
+                    <a className="inline-link" href={normalizeUrl(social.github)} target="_blank" rel="noreferrer">
+                      {social.github}
+                    </a>
+                  </p>
+                )}
+                {social.portfolio && (
+                  <p>
+                    <strong>Portfolio:</strong>{" "}
+                    <a className="inline-link" href={normalizeUrl(social.portfolio)} target="_blank" rel="noreferrer">
+                      {social.portfolio}
+                    </a>
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="home-image-wrap">
+              <img
+                src={getImageUrl(profile.profileImage)}
+                alt="Profile"
+                className="home-avatar"
+                onError={(e) => {
+                  e.currentTarget.src = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png";
+                }}
+              />
+            </div>
+          </section>
+        )}
+
+        {active === "about" && (
+          <section className="glass section">
+            <div className="section-head">
+              <h2>About</h2>
+              {!aboutEdit ? (
+                <button onClick={() => setAboutEdit(true)}>Edit</button>
+              ) : (
+                <div className="inline-actions">
+                  <button className="ghost" onClick={resetEditState}>Cancel</button>
+                  <button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+                </div>
+              )}
+            </div>
+
+            {aboutEdit ? (
+              <div className="form-grid">
+                <textarea
+                  rows="5"
+                  value={editData.bio}
+                  onChange={(e) => setEditData((prev) => ({ ...prev, bio: e.target.value }))}
+                  placeholder="Bio"
+                />
+                <input
+                  value={editData.contact}
+                  onChange={(e) => setEditData((prev) => ({ ...prev, contact: e.target.value }))}
+                  placeholder="Contact number"
+                />
+                <input
+                  value={editData.skills}
+                  onChange={(e) => setEditData((prev) => ({ ...prev, skills: e.target.value }))}
+                  placeholder="Skills (comma separated)"
+                />
+                <input
+                  value={editData.socialLinks.linkedin}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      socialLinks: { ...prev.socialLinks, linkedin: e.target.value },
+                    }))
+                  }
+                  placeholder="LinkedIn URL"
+                />
+                <input
+                  value={editData.socialLinks.github}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      socialLinks: { ...prev.socialLinks, github: e.target.value },
+                    }))
+                  }
+                  placeholder="GitHub URL"
+                />
+                <input
+                  value={editData.socialLinks.portfolio}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      socialLinks: { ...prev.socialLinks, portfolio: e.target.value },
+                    }))
+                  }
+                  placeholder="Portfolio/Website URL"
+                />
+              </div>
+            ) : (
+              <>
+                <p>{profile.bio || "No bio available."}</p>
+                <p><strong>Contact:</strong> {profile.contact || "Not added"}</p>
+                <div className="skill-list">
+                  {profile.skills?.length ? (
+                    profile.skills.map((skill, index) => (
+                      <span key={`${skill}-${index}`} className="skill-chip">{skill}</span>
+                    ))
+                  ) : (
+                    <span className="muted">No skills added</span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {profile.resume && (
+              <a
+                className="resume-link"
+                href={getImageUrl(profile.resume)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Download Resume
+              </a>
+            )}
+          </section>
+        )}
+
+        {active === "projects" && (
+          <section className="glass section">
+            <div className="section-head">
+              <h2>Projects</h2>
+              {!projectEdit ? (
+                <button onClick={() => setProjectEdit(true)}>Edit Projects</button>
+              ) : (
+                <div className="inline-actions">
+                  <button className="ghost" onClick={resetEditState}>Cancel</button>
+                  <button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+                </div>
+              )}
+            </div>
+
+            {projectEdit ? (
+              <div className="project-edit-list">
+                {editData.projects.map((project, index) => (
+                  <div key={`project-${index}`} className="project-edit-card">
+                    <input
+                      placeholder="Title"
+                      value={project.title}
+                      onChange={(e) => updateProject(index, "title", e.target.value)}
+                    />
+                    <textarea
+                      rows="3"
+                      placeholder="Description"
+                      value={project.description}
+                      onChange={(e) => updateProject(index, "description", e.target.value)}
+                    />
+                    <input
+                      placeholder="Visit link"
+                      value={project.link}
+                      onChange={(e) => updateProject(index, "link", e.target.value)}
+                    />
+                    <button className="ghost" onClick={() => removeProject(index)}>Remove</button>
+                  </div>
+                ))}
+                <button onClick={addProject}>Add Project</button>
+              </div>
+            ) : (
+              <div className="projects-grid">
+                {profile.projects?.length ? (
+                  profile.projects.map((project, index) => (
+                    <article key={`project-view-${index}`} className="project-card">
+                      <h3>{project.title || "Untitled"}</h3>
+                      <p>{project.description || "No description"}</p>
+                      {project.link ? (
+                        <a href={project.link} target="_blank" rel="noreferrer">Visit</a>
+                      ) : (
+                        <span className="muted">No link</span>
+                      )}
+                    </article>
+                  ))
+                ) : (
+                  <p className="muted">No projects added yet.</p>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {active === "contact" && (
+          <section className="glass section">
+            <div className="section-head">
+              <h2>Contact</h2>
+              {!contactEdit ? (
+                <button onClick={() => setContactEdit(true)}>Edit</button>
+              ) : (
+                <div className="inline-actions">
+                  <button className="ghost" onClick={resetEditState}>Cancel</button>
+                  <button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+                </div>
+              )}
+            </div>
+
+            {contactEdit ? (
+              <div className="form-grid">
+                <input
+                  value={editData.contact}
+                  onChange={(e) => setEditData((prev) => ({ ...prev, contact: e.target.value }))}
+                  placeholder="Contact number"
+                />
+                <input
+                  value={editData.socialLinks.linkedin}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      socialLinks: { ...prev.socialLinks, linkedin: e.target.value },
+                    }))
+                  }
+                  placeholder="LinkedIn URL"
+                />
+                <input
+                  value={editData.socialLinks.github}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      socialLinks: { ...prev.socialLinks, github: e.target.value },
+                    }))
+                  }
+                  placeholder="GitHub URL"
+                />
+                <input
+                  value={editData.socialLinks.portfolio}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      socialLinks: { ...prev.socialLinks, portfolio: e.target.value },
+                    }))
+                  }
+                  placeholder="Portfolio/Website URL"
+                />
+              </div>
+            ) : (
+              <>
+                <p>
+                  <strong>Email:</strong>{" "}
+                  {profile.email ? (
+                    <a className="inline-link" href={`mailto:${profile.email}`}>{profile.email}</a>
+                  ) : (
+                    "Not added"
+                  )}
+                </p>
+                <p>
+                  <strong>Phone:</strong>{" "}
+                  {profile.contact ? (
+                    <a className="inline-link" href={`tel:${profile.contact}`}>{profile.contact}</a>
+                  ) : (
+                    "Not added"
+                  )}
+                </p>
+                <p>
+                  <strong>LinkedIn:</strong>{" "}
+                  {social.linkedin ? (
+                    <a className="inline-link" href={normalizeUrl(social.linkedin)} target="_blank" rel="noreferrer">
+                      {social.linkedin}
+                    </a>
+                  ) : (
+                    "Not added"
+                  )}
+                </p>
+                <p>
+                  <strong>GitHub:</strong>{" "}
+                  {social.github ? (
+                    <a className="inline-link" href={normalizeUrl(social.github)} target="_blank" rel="noreferrer">
+                      {social.github}
+                    </a>
+                  ) : (
+                    "Not added"
+                  )}
+                </p>
+                <p>
+                  <strong>Portfolio:</strong>{" "}
+                  {social.portfolio ? (
+                    <a className="inline-link" href={normalizeUrl(social.portfolio)} target="_blank" rel="noreferrer">
+                      {social.portfolio}
+                    </a>
+                  ) : (
+                    "Not added"
+                  )}
+                </p>
+
+                <div className="social-links contact-links">
+                  {profile.contact && (
+                    <a href={`tel:${profile.contact}`}>
+                      <span className="social-icon"><FaPhone /></span>
+                      Phone
+                    </a>
+                  )}
+                  {profile.email && (
+                    <a href={`mailto:${profile.email}`}>
+                      <span className="social-icon"><FaEnvelope /></span>
+                      Email
+                    </a>
+                  )}
+                  {social.linkedin && (
+                    <a href={normalizeUrl(social.linkedin)} target="_blank" rel="noreferrer">
+                      <span className="social-icon"><FaLinkedin /></span>
+                      {social.linkedin}
+                    </a>
+                  )}
+                  {social.github && (
+                    <a href={normalizeUrl(social.github)} target="_blank" rel="noreferrer">
+                      <span className="social-icon"><FaGithub /></span>
+                      {social.github}
+                    </a>
+                  )}
+                  {social.portfolio && (
+                    <a href={normalizeUrl(social.portfolio)} target="_blank" rel="noreferrer">
+                      <span className="social-icon"><FaGlobe /></span>
+                      {social.portfolio}
+                    </a>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}

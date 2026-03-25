@@ -1,0 +1,55 @@
+import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { getUserProfile } from "../utils/api";
+
+export default function Portfolio() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [profile, setProfile] = useState(null);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const data = await getUserProfile(id);
+        setProfile(data);
+      } catch (err) {
+        console.error(err);
+        navigate("/");
+      }
+    };
+    loadProfile();
+  }, [id, navigate]);
+
+  if (!profile) return <h2 style={{ textAlign: "center" }}>Loading...</h2>;
+
+  return (
+    <div style={{ textAlign: "center", padding: 30 }}>
+      {profile.profileImage && (
+        <img
+          src={`http://localhost:5000/uploads/${profile.profileImage}`}
+          width="140"
+          style={{ borderRadius: "50%", boxShadow: "0 0 25px rgba(140,0,255,0.6)" }}
+          alt="profile"
+        />
+      )}
+      <h1>{profile.name}</h1>
+      
+      <p>{profile.skills?.join(" • ")}</p>
+      {profile.contact && <p>Contact: {profile.contact}</p>}
+      {profile.resume && (
+        <a href={`http://localhost:5000/uploads/${profile.resume}`} target="_blank" rel="noreferrer">
+          Download Resume
+        </a>
+      )}
+      <h3>Projects</h3>
+      {profile.projects?.map((p, i) => (
+        <div key={i}>
+          <h4>{p.title}</h4>
+          <p>{p.description}</p>
+          <a href={p.link} target="_blank" rel="noreferrer">View</a>
+        </div>
+      ))}
+      <button onClick={() => navigate("/")}>Go Home</button>
+    </div>
+  );
+}
